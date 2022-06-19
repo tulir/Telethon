@@ -246,7 +246,8 @@ class TelegramBaseClient(abc.ABC):
             loop: asyncio.AbstractEventLoop = None,
             base_logger: typing.Union[str, logging.Logger] = None,
             receive_updates: bool = True,
-            catch_up: bool = False
+            catch_up: bool = False,
+            update_error_callback: typing.Callable[[Exception], typing.Awaitable[None]] = None,
     ):
         if not api_id or not api_hash:
             raise ValueError(
@@ -447,6 +448,8 @@ class TelegramBaseClient(abc.ABC):
             updates_queue=self._updates_queue,
             auto_reconnect_callback=self._handle_auto_reconnect
         )
+
+        self.update_error_callback = update_error_callback
 
 
     # endregion

@@ -351,8 +351,10 @@ class UpdateMethods:
                     continue  # get(_channel)_difference will start returning requests
 
                 updates_to_dispatch.extend(self._preprocess_updates(processed, users, chats))
-        except Exception:
+        except Exception as e:
             self._log[__name__].exception('Fatal error handling updates (this is a bug in Telethon, please report it)')
+            if self.update_error_callback:
+                await self.update_error_callback(e)
 
     def _preprocess_updates(self, updates, users, chats):
         self._mb_entity_cache.extend(users, chats)
