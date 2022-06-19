@@ -13,6 +13,7 @@ from .. import events, utils, errors
 from ..events.common import EventBuilder, EventCommon
 from ..tl import types, functions
 from .._updates import GapError, PrematureEndReason
+from .._updates.messagebox import ENTRY_ACCOUNT, ENTRY_SECRET
 
 if typing.TYPE_CHECKING:
     from .telegramclient import TelegramClient
@@ -268,15 +269,25 @@ class UpdateMethods:
 
                 get_diff = self._message_box.get_difference()
                 if get_diff:
-                    self._log[__name__].info('Getting difference for account updates')
+                    self._log[__name__].info(
+                        'Getting difference for account updates (seq: %d, pts: %d, qts: %d, date: %s)',
+                        self._message_box.seq, get_diff.pts, get_diff.qts, get_diff.date
+                    )
                     diff = await self(get_diff)
                     updates, users, chats = self._message_box.apply_difference(diff, self._mb_entity_cache)
+                    self._log[__name__].info(
+                        'New account state after applying difference (%s): seq: %d, pts: %d, qts: %d, date: %s',
+                        type(diff).__name__, self._message_box.seq,
+                        getattr(self._message_box.map.get(ENTRY_ACCOUNT), "pts", None) or 0,
+                        getattr(self._message_box.map.get(ENTRY_SECRET), "pts", None) or 0,
+                        self._message_box.date
+                    )
                     updates_to_dispatch.extend(self._preprocess_updates(updates, users, chats))
                     continue
 
                 get_diff = self._message_box.get_channel_difference(self._mb_entity_cache)
                 if get_diff:
-                    self._log[__name__].info('Getting difference for channel updates')
+                    self._log[__name__].info('Getting difference for channel updates (id: %d, pts: %d)', get_diff.channel.channel_id, get_diff.pts)
                     try:
                         diff = await self(get_diff)
                     except errors.PersistentTimestampOutdatedError:
@@ -315,13 +326,13 @@ class UpdateMethods:
                             self._mb_entity_cache
                         )
                         continue
-                    except errors.ChannelPrivateError:
+                    except (errors.ChannelPrivateError, errors.ChannelInvalidError) as e:
                         # Timeout triggered a get difference, but we have been banned in the channel since then.
                         # Because we can no longer fetch updates from this channel, we should stop keeping track
                         # of it entirely.
-                        self._log[__name__].info(
-                            'Account is now banned in %d so we can no longer fetch updates from it',
-                            get_diff.channel.channel_id
+                        self._log[__name__].warn(
+                            'Got %s in %d so we can no longer fetch updates from it',
+                            type(e).__name__, get_diff.channel.channel_id
                         )
                         self._message_box.end_channel_difference(
                             get_diff,
@@ -331,6 +342,12 @@ class UpdateMethods:
                         continue
 
                     updates, users, chats = self._message_box.apply_channel_difference(get_diff, diff, self._mb_entity_cache)
+                    self._log[__name__].info(
+                        'New channel state for %d after applying difference (%s): pts: %d',
+                        get_diff.channel.channel_id,
+                        type(diff).__name__,
+                        getattr(self._message_box.map.get(get_diff.channel.channel_id), "pts", None) or 0,
+                    )
                     updates_to_dispatch.extend(self._preprocess_updates(updates, users, chats))
                     continue
 
@@ -356,7 +373,7 @@ class UpdateMethods:
             if self.update_error_callback:
                 await self.update_error_callback(e)
 
-    def _preprocess_updates(self, updates, users, chats):
+    def _preprocess_updates(self: 'TelegramClient', updates, users, chats):
         self._mb_entity_cache.extend(users, chats)
         entities = {utils.get_peer_id(x): x
                     for x in itertools.chain(users, chats)}
