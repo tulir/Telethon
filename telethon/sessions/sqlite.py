@@ -216,6 +216,9 @@ class SQLiteSession(MemorySession):
                       entity_id, state.pts, state.qts,
                       state.date.timestamp(), state.seq)
 
+    async def delete_update_state(self, entity_id):
+        self._execute('delete from update_state where id = ?', entity_id)
+
     async def get_update_states(self):
         c = self._cursor()
         try:

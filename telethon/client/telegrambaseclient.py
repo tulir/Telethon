@@ -8,7 +8,7 @@ import time
 import typing
 import datetime
 
-from .. import version, helpers, __name__ as __base_name__
+from .. import version, helpers, errors, __name__ as __base_name__
 from ..crypto import rsa
 from ..entitycache import EntityCache
 from ..extensions import markdown
@@ -16,7 +16,7 @@ from ..network import MTProtoSender, Connection, ConnectionTcpFull, TcpMTProxy
 from ..sessions import Session, SQLiteSession, MemorySession
 from ..tl import functions, types
 from ..tl.alltlobjects import LAYER
-from .._updates import MessageBox, EntityCache as MbEntityCache, SessionState, ChannelState, Entity, EntityType
+from .._updates import MessageBox, EntityCache as MbEntityCache, SessionState, ChannelState, Entity, EntityType, PrematureEndReason
 
 DEFAULT_DC_ID = 2
 DEFAULT_IPV4_IP = '149.154.167.51'
@@ -559,8 +559,26 @@ class TelegramBaseClient(abc.ABC):
 
             self._message_box.load(ss, cs)
             for state in cs:
-                entity = await self.session.get_input_entity(state.channel_id)
+                entity = await self.session.get_input_entity(types.PeerChannel(state.channel_id))
                 if entity:
+                    if not await self.is_bot():
+                        # TODO is get participant self supposed to work for bots?
+                        try:
+                            self._log[__name__].info("Ensuring user is still in %s", state.channel_id)
+                            pcp = await self(functions.channels.GetParticipantRequest(
+                                channel=entity, participant=types.InputPeerSelf(),
+                            ))
+                        except (errors.ChannelInvalidError, errors.ChannelPrivateError, errors.UserNotParticipantError) as e:
+                            self._log[__name__].warning(f"Removing update state for {state.channel_id}: got {type(e).__name__} trying to fetch own participation state")
+                            self._message_box.remove_channel(state.channel_id)
+                            await self.session.delete_update_state(state.channel_id)
+                            continue
+                        else:
+                            if isinstance(pcp.participant, (types.ChannelParticipantLeft, types.ChannelParticipantBanned)):
+                                self._log[__name__].warning(f"Removing update state for {state.channel_id}: own participation state is {type(pcp.participant).__name__}")
+                                self._message_box.remove_channel(state.channel_id)
+                                await self.session.delete_update_state(state.channel_id)
+                                continue
                     self._mb_entity_cache.put(Entity(EntityType.CHANNEL, entity.channel_id, entity.access_hash))
 
         self._init_request.query = functions.help.GetConfigRequest()

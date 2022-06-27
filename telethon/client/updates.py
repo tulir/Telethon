@@ -339,6 +339,7 @@ class UpdateMethods:
                             PrematureEndReason.BANNED,
                             self._mb_entity_cache
                         )
+                        await self.session.delete_update_state(get_diff.channel.channel_id)
                         continue
 
                     updates, users, chats = self._message_box.apply_channel_difference(get_diff, diff, self._mb_entity_cache)
@@ -438,6 +439,29 @@ class UpdateMethods:
                 await self.get_me(input_peer=True)
             except OSError:
                 pass  # might not have connection
+
+        if isinstance(update, types.UpdateChannel):
+            try:
+                self._log[__name__].info("Fetching channel %s due to UpdateChannel event", update.channel_id)
+                resp = await self(functions.channels.GetChannelsRequest(
+                    id=[types.PeerChannel(update.channel_id)],
+                ))
+                if not isinstance(resp.chats[0], types.Channel):
+                    self._log[__name__].info(f"Channel is of type %s after %s, clearing update state and adding custom leave flag", type(resp.chats[0]).__name__, update)
+                    left = True
+                elif resp.chats[0].left:
+                    self._log[__name__].info(f"Channel says we've left it after %s, clearing update state and adding custom leave flag", update)
+                    left = True
+                else:
+                    left = False
+                setattr(update, "mau_channel", resp.chats[0])
+            except (errors.ChannelInvalidError, errors.ChannelPrivateError) as e:
+                self._log[__name__].info(f"Got %s after %s, clearing update state and adding custom leave flag", type(e).__name__, update)
+                left = True
+            if left:
+                self._message_box.remove_channel(update.channel_id)
+                await self.session.delete_update_state(update.channel_id)
+                setattr(update, "mau_telethon_is_leave", True)
 
         built = EventBuilderDict(self, update, others)
         for conv_set in self._conversations.values():

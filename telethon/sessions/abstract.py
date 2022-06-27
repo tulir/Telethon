@@ -98,6 +98,13 @@ class Session(ABC):
         raise NotImplementedError
 
     @abstractmethod
+    async def delete_update_state(self, entity_id):
+        """
+        Deletes the ``UpdateState`` for the specified `entity_id`. This should only be used for channels.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
     async def get_update_states(self):
         """
         Returns an iterable over all known pairs of ``(entity ID, update state)``.
