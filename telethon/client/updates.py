@@ -282,7 +282,7 @@ class UpdateMethods:
                         getattr(self._message_box.map.get(ENTRY_SECRET), "pts", None) or 0,
                         self._message_box.date
                     )
-                    updates_to_dispatch.extend(self._preprocess_updates(updates, users, chats))
+                    updates_to_dispatch.extend(await self._preprocess_updates(updates, users, chats))
                     continue
 
                 get_diff = self._message_box.get_channel_difference(self._mb_entity_cache)
@@ -349,7 +349,7 @@ class UpdateMethods:
                         type(diff).__name__,
                         getattr(self._message_box.map.get(get_diff.channel.channel_id), "pts", None) or 0,
                     )
-                    updates_to_dispatch.extend(self._preprocess_updates(updates, users, chats))
+                    updates_to_dispatch.extend(await self._preprocess_updates(updates, users, chats))
                     continue
 
                 deadline = self._message_box.check_deadlines()
@@ -368,18 +368,23 @@ class UpdateMethods:
                 except GapError:
                     continue  # get(_channel)_difference will start returning requests
 
-                updates_to_dispatch.extend(self._preprocess_updates(processed, users, chats))
+                updates_to_dispatch.extend(await self._preprocess_updates(processed, users, chats))
         except Exception as e:
             self._log[__name__].exception('Fatal error handling updates (this is a bug in Telethon, please report it)')
             if self.update_error_callback:
                 await self.update_error_callback(e)
 
-    def _preprocess_updates(self: 'TelegramClient', updates, users, chats):
+    async def _preprocess_updates(self: 'TelegramClient', updates, users, chats):
         self._mb_entity_cache.extend(users, chats)
         entities = {utils.get_peer_id(x): x
                     for x in itertools.chain(users, chats)}
         for u in updates:
             u._entities = entities
+        try:
+            await self.session.process_entities(list(entities.values()))
+        except OSError as e:
+            self._log[__name__].warning(
+                'Failed to save possibly new entities to the session: %s: %s', type(e), e)
         return updates
 
     async def _keepalive_loop(self: 'TelegramClient'):
