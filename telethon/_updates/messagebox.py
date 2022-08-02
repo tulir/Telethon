@@ -663,8 +663,8 @@ class MessageBox:
             self.reset_channel_deadline(entry, diff.timeout)
             # This `diff` has the "latest messages and corresponding chats", but it would
             # be strange to give the user only partial changes of these when they would
-            # expect all updates to be fetched. Instead, nothing is returned.
-            return [], [], []
+            # expect all updates to be fetched. Instead, a single "too long" event is dispatched.
+            return [diff], diff.users, diff.chats
         elif isinstance(diff, tl.updates.ChannelDifference):
             if diff.final:
                 self.end_get_diff(entry)
