@@ -368,7 +368,9 @@ class UpdateMethods:
                     continue  # get(_channel)_difference will start returning requests
 
                 updates_to_dispatch.extend(await self._preprocess_updates(processed, users, chats))
-        except Exception as e:
+        except asyncio.CancelledError:
+            pass
+        except Exception:
             self._log[__name__].exception('Fatal error handling updates (this is a bug in Telethon, please report it)')
             if self.update_error_callback:
                 await self.update_error_callback(e)
