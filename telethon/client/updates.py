@@ -247,6 +247,7 @@ class UpdateMethods:
     # region Private methods
 
     async def _update_loop(self: 'TelegramClient'):
+        self._log[__name__].info("Update loop starting")
         try:
             if self._catch_up:
                 # User wants to catch up as soon as the client is up and running,
@@ -370,10 +371,12 @@ class UpdateMethods:
                 updates_to_dispatch.extend(await self._preprocess_updates(processed, users, chats))
         except asyncio.CancelledError:
             pass
-        except Exception:
+        except Exception as e:
             self._log[__name__].exception('Fatal error handling updates (this is a bug in Telethon, please report it)')
             if self.update_error_callback:
                 await self.update_error_callback(e)
+        finally:
+            self._log[__name__].info("Update loop finished")
 
     async def _preprocess_updates(self: 'TelegramClient', updates, users, chats):
         self._mb_entity_cache.extend(users, chats)
