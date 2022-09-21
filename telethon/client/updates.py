@@ -15,6 +15,7 @@ from ..tl import types, functions
 from .._updates import GapError, PrematureEndReason
 from ..helpers import get_running_loop
 
+from .._updates.messagebox import ENTRY_ACCOUNT, ENTRY_SECRET
 
 if typing.TYPE_CHECKING:
     from .telegramclient import TelegramClient
@@ -253,6 +254,7 @@ class UpdateMethods:
     # region Private methods
 
     async def _update_loop(self: 'TelegramClient'):
+        self._log[__name__].info("Update loop starting")
         self._updates_error = None
         try:
             if self._catch_up:
@@ -277,7 +279,10 @@ class UpdateMethods:
 
                 get_diff = self._message_box.get_difference()
                 if get_diff:
-                    self._log[__name__].debug('Getting difference for account updates')
+                    self._log[__name__].info(
+                        'Getting difference for account updates (seq: %d, pts: %d, qts: %d, date: %s)',
+                        self._message_box.seq, get_diff.pts, get_diff.qts, get_diff.date
+                    )
                     try:
                         diff = await self(get_diff)
                     except (errors.ServerError, ValueError) as e:
@@ -298,15 +303,19 @@ class UpdateMethods:
                         await asyncio.sleep(5)
                         continue
                     updates, users, chats = self._message_box.apply_difference(diff, self._mb_entity_cache)
-                    if updates:
-                        self._log[__name__].info('Got difference for account updates')
-
-                    updates_to_dispatch.extend(self._preprocess_updates(updates, users, chats))
+                    self._log[__name__].info(
+                        'New account state after applying difference (%s): seq: %d, pts: %d, qts: %d, date: %s',
+                        type(diff).__name__, self._message_box.seq,
+                        getattr(self._message_box.map.get(ENTRY_ACCOUNT), "pts", None) or 0,
+                        getattr(self._message_box.map.get(ENTRY_SECRET), "pts", None) or 0,
+                        self._message_box.date
+                    )
+                    updates_to_dispatch.extend(await self._preprocess_updates(updates, users, chats))
                     continue
 
                 get_diff = self._message_box.get_channel_difference(self._mb_entity_cache)
                 if get_diff:
-                    self._log[__name__].debug('Getting difference for channel %s updates', get_diff.channel.channel_id)
+                    self._log[__name__].info('Getting difference for channel updates (id: %d, pts: %d)', get_diff.channel.channel_id, get_diff.pts)
                     try:
                         diff = await self(get_diff)
                     except (
@@ -344,19 +353,20 @@ class UpdateMethods:
                             self._mb_entity_cache
                         )
                         continue
-                    except (errors.ChannelPrivateError, errors.ChannelInvalidError):
+                    except (errors.ChannelPrivateError, errors.ChannelInvalidError) as e:
                         # Timeout triggered a get difference, but we have been banned in the channel since then.
                         # Because we can no longer fetch updates from this channel, we should stop keeping track
                         # of it entirely.
-                        self._log[__name__].info(
-                            'Account is now banned in %d so we can no longer fetch updates from it',
-                            get_diff.channel.channel_id
+                        self._log[__name__].warn(
+                            'Got %s in %d so we can no longer fetch updates from it',
+                            type(e).__name__, get_diff.channel.channel_id
                         )
                         self._message_box.end_channel_difference(
                             get_diff,
                             PrematureEndReason.BANNED,
                             self._mb_entity_cache
                         )
+                        await self.session.delete_update_state(get_diff.channel.channel_id)
                         continue
                     except OSError as e:
                         self._log[__name__].info(
@@ -367,10 +377,13 @@ class UpdateMethods:
                         continue
 
                     updates, users, chats = self._message_box.apply_channel_difference(get_diff, diff, self._mb_entity_cache)
-                    if updates:
-                        self._log[__name__].info('Got difference for channel %d updates', get_diff.channel.channel_id)
-
-                    updates_to_dispatch.extend(self._preprocess_updates(updates, users, chats))
+                    self._log[__name__].info(
+                        'New channel state for %d after applying difference (%s): pts: %d',
+                        get_diff.channel.channel_id,
+                        type(diff).__name__,
+                        getattr(self._message_box.map.get(get_diff.channel.channel_id), "pts", None) or 0,
+                    )
+                    updates_to_dispatch.extend(await self._preprocess_updates(updates, users, chats))
                     continue
 
                 deadline = self._message_box.check_deadlines()
@@ -391,20 +404,30 @@ class UpdateMethods:
                 except GapError:
                     continue  # get(_channel)_difference will start returning requests
 
-                updates_to_dispatch.extend(self._preprocess_updates(processed, users, chats))
+                updates_to_dispatch.extend(await self._preprocess_updates(processed, users, chats))
         except asyncio.CancelledError:
             pass
         except Exception as e:
             self._log[__name__].exception('Fatal error handling updates (this is a bug in Telethon, please report it)')
             self._updates_error = e
-            await self.disconnect()
+            if self.update_error_callback:
+                await self.update_error_callback(e)
+            else:
+                await self.disconnect()
+        finally:
+            self._log[__name__].info("Update loop finished")
 
-    def _preprocess_updates(self, updates, users, chats):
+    async def _preprocess_updates(self: 'TelegramClient', updates, users, chats):
         self._mb_entity_cache.extend(users, chats)
         entities = {utils.get_peer_id(x): x
                     for x in itertools.chain(users, chats)}
         for u in updates:
             u._entities = entities
+        try:
+            await self.session.process_entities(list(entities.values()))
+        except OSError as e:
+            self._log[__name__].warning(
+                'Failed to save possibly new entities to the session: %s: %s', type(e), e)
         return updates
 
     async def _keepalive_loop(self: 'TelegramClient'):
@@ -443,7 +466,11 @@ class UpdateMethods:
             # inserted because this is a rather expensive operation
             # (default's sqlite3 takes ~0.1s to commit changes). Do
             # it every minute instead. No-op if there's nothing new.
-            self.session.save()
+            try:
+                await self.session.save()
+            except OSError as e:
+                # No big deal if this cannot be immediately saved
+                self._log[__name__].warning('Could not perform the periodic save of session data: %s: %s', type(e), e)
 
     async def _dispatch_update(self: 'TelegramClient', update):
         # TODO only used for AlbumHack, and MessageBox is not really designed for this
@@ -460,6 +487,29 @@ class UpdateMethods:
                 await self.get_me(input_peer=True)
             except OSError:
                 pass  # might not have connection
+
+        if isinstance(update, types.UpdateChannel):
+            try:
+                self._log[__name__].info("Fetching channel %s due to UpdateChannel event", update.channel_id)
+                resp = await self(functions.channels.GetChannelsRequest(
+                    id=[types.PeerChannel(update.channel_id)],
+                ))
+                if not isinstance(resp.chats[0], types.Channel):
+                    self._log[__name__].info(f"Channel is of type %s after %s, clearing update state and adding custom leave flag", type(resp.chats[0]).__name__, update)
+                    left = True
+                elif resp.chats[0].left:
+                    self._log[__name__].info(f"Channel says we've left it after %s, clearing update state and adding custom leave flag", update)
+                    left = True
+                else:
+                    left = False
+                setattr(update, "mau_channel", resp.chats[0])
+            except (errors.ChannelInvalidError, errors.ChannelPrivateError) as e:
+                self._log[__name__].info(f"Got %s after %s, clearing update state and adding custom leave flag", type(e).__name__, update)
+                left = True
+            if left:
+                self._message_box.remove_channel(update.channel_id)
+                await self.session.delete_update_state(update.channel_id)
+                setattr(update, "mau_telethon_is_leave", True)
 
         built = EventBuilderDict(self, update, others)
         for conv_set in self._conversations.values():
