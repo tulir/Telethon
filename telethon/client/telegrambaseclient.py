@@ -547,6 +547,12 @@ class TelegramBaseClient(abc.ABC):
         self.session.auth_key = self._sender.auth_key
         await self.session.save()
 
+        self._init_request.query = functions.help.GetConfigRequest()
+
+        await self._sender.send(functions.InvokeWithLayerRequest(
+            LAYER, self._init_request
+        ))
+
         if self._catch_up and not await self.is_user_authorized():
             self._log[__name__].info("Not catching up as user isn't authorized")
             # Don't catch up if user isn't logged in
@@ -587,11 +593,6 @@ class TelegramBaseClient(abc.ABC):
                     self._mb_entity_cache.put(Entity(EntityType.CHANNEL, entity.channel_id, entity.access_hash))
 
         self._authorized = None
-        self._init_request.query = functions.help.GetConfigRequest()
-
-        await self._sender.send(functions.InvokeWithLayerRequest(
-            LAYER, self._init_request
-        ))
 
         if self._message_box.is_empty():
             me = await self.get_me()
