@@ -260,7 +260,7 @@ MESSAGE_IDS_EMPTY,400,No message ids were provided
 MESSAGE_ID_INVALID,400,The specified message ID is invalid or you can't do that operation on such message
 MESSAGE_NOT_MODIFIED,400,Content of the message was not modified
 MESSAGE_POLL_CLOSED,400,The poll was closed and can no longer be voted on
-MESSAGE_TOO_LONG,400,Message was too long
+MESSAGE_TOO_LONG,400,Message was too long. Current maximum length is 4096 UTF-8 characters
 METHOD_INVALID,400,The API method is invalid and cannot be used
 MIN_DATE_INVALID,400,The specified minimum date is invalid
 MSGID_DECREASE_RETRY,500,The request should be retried with a lower message ID
