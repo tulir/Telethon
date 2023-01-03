@@ -1084,7 +1084,7 @@ class MessageMethods:
     async def edit_message(
             self: 'TelegramClient',
             entity: 'typing.Union[hints.EntityLike, types.Message]',
-            message: 'typing.Union[int, types.Message, types.InputMessageID, str]' = None,
+            message: 'hints.MessageIDLike' = None,
             text: str = None,
             *,
             parse_mode: str = (),

@@ -80,7 +80,11 @@ class UserMethods:
                             exceptions.append(e)
                             results.append(None)
                             continue
-                        self.session.process_entities(result)
+                        try:
+                            await self.session.process_entities(result)
+                        except OSError as e:
+                            self._log[__name__].warning(
+                                'Failed to save possibly new entities to the session: %s: %s', type(e), e)
                         exceptions.append(None)
                         results.append(result)
                         request_index += 1
@@ -90,7 +94,14 @@ class UserMethods:
                         return results
                 else:
                     result = await future
-                    self.session.process_entities(result)
+                    # This is called pretty often, and it's okay if it fails every now and then.
+                    # It only means certain entities won't be saved.
+                    try:
+                        await self.session.process_entities(result)
+                    except OSError as e:
+                        self._log[__name__].warning(
+                            'Failed to save possibly new entities to the session: %s: %s', type(e), e)
+
                     return result
             except (errors.ServerError, errors.RpcCallFailError,
                     errors.RpcMcgetFailError, errors.InterdcCallErrorError,
@@ -435,7 +446,7 @@ class UserMethods:
 
         # No InputPeer, cached peer, or known string. Fetch from disk cache
         try:
-            return self.session.get_input_entity(peer)
+            return await self.session.get_input_entity(peer)
         except ValueError:
             pass
 
@@ -575,7 +586,7 @@ class UserMethods:
             try:
                 # Nobody with this username, maybe it's an exact name/title
                 return await self.get_entity(
-                    self.session.get_input_entity(string))
+                    await self.session.get_input_entity(string))
             except ValueError:
                 pass
 
