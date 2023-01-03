@@ -97,10 +97,8 @@ class Album(EventBuilder):
 
     @classmethod
     def build(cls, update, others=None, self_id=None):
-        # TODO normally we'd only check updates if they come with other updates
-        # but MessageBox is not designed for this so others will always be None.
-        # In essence we always rely on AlbumHack rather than returning early if not others.
-        others = [update]
+        if not others:
+            return  # We only care about albums which come inside the same Updates
 
         if isinstance(update,
                       (types.UpdateNewMessage, types.UpdateNewChannelMessage)):
