@@ -65,7 +65,7 @@ class _DirectDownloadIter(RequestIter):
                     if option.ip_address == self.client.session.server_address:
                         self.client.session.set_dc(
                             option.id, option.ip_address, option.port)
-                        self.client.session.save()
+                        await self.client.session.save()
                         break
 
                 # TODO Figure out why the session may have the wrong DC ID
