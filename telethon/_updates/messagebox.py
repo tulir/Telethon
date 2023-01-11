@@ -593,7 +593,10 @@ class MessageBox:
         # unlikely). This will prevent us from losing updates in the unlikely scenario where these
         # two updates arrive in different packets (and therefore couldn't be sorted beforehand).
         if pts.entry in self.map:
-            self.map[pts.entry].pts = pts.pts
+            if not pts.pts:
+                self._log.warning(f"Ignoring empty pts {pts!r}")
+            else:
+                self.map[pts.entry].pts = pts.pts
         else:
             # When a chat is migrated to a megagroup, the first update can be a `ReadChannelInbox`
             # with `pts = 1, pts_count = 0` followed by a `NewChannelMessage` with `pts = 2, pts_count=1`.
