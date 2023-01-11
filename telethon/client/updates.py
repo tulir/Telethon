@@ -354,6 +354,10 @@ class UpdateMethods:
 
                 get_diff = self._message_box.get_channel_difference(self._mb_entity_cache)
                 if get_diff:
+                    if get_diff.pts == 0:
+                        self._log[__name__].info('Removing channel %d due to empty pts', get_diff.channel.channel_id)
+                        self._message_box.remove_channel(get_diff.channel.channel_id)
+                        continue
                     self._log[__name__].info('Getting difference for channel updates (id: %d, pts: %d)', get_diff.channel.channel_id, get_diff.pts)
                     try:
                         diff = await self(get_diff)
