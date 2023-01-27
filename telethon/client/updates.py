@@ -258,6 +258,7 @@ class UpdateMethods:
         # This flag is used to propagate the "you got logged-out" error up (but getting logged-out
         # can only happen if it was once logged-in).
         was_once_logged_in = self._authorized is True or not self._message_box.is_empty()
+        GET_DIFF_TIMEOUT = 120
 
         self._log[__name__].info("Update loop starting")
         self._updates_error = None
@@ -289,7 +290,7 @@ class UpdateMethods:
                         self._message_box.seq, get_diff.pts, get_diff.qts, get_diff.date
                     )
                     try:
-                        diff = await self(get_diff)
+                        diff = await asyncio.wait_for(self(get_diff), timeout=GET_DIFF_TIMEOUT)
                     except (errors.ServerError, errors.TimeoutError, ValueError) as e:
                         # Telegram is having issues
                         self._log[__name__].info('Cannot get difference since Telegram is having issues: %s', type(e).__name__)
@@ -299,12 +300,12 @@ class UpdateMethods:
                         # Not logged in or broken authorization key, can't get difference
                         self._log[__name__].info('Cannot get difference since the account is not logged in: %s', type(e).__name__)
                         self._message_box.end_difference()
-                        if self.update_error_callback:
-                            await self.update_error_callback(e)
-                            return
-                        if was_once_logged_in:
+                        if self.update_error_callback or was_once_logged_in:
                             self._updates_error = e
-                            await self.disconnect()
+                            if self.update_error_callback:
+                                await asyncio.shield(self.update_error_callback(e))
+                            else:
+                                await self.disconnect()
                             break
                         continue
                     except OSError as e:
@@ -333,7 +334,7 @@ class UpdateMethods:
                         continue
                     self._log[__name__].info('Getting difference for channel updates (id: %d, pts: %d)', get_diff.channel.channel_id, get_diff.pts)
                     try:
-                        diff = await self(get_diff)
+                        diff = await asyncio.wait_for(self(get_diff), timeout=GET_DIFF_TIMEOUT)
                     except (errors.UnauthorizedError, errors.AuthKeyError) as e:
                         # Not logged in or broken authorization key, can't get difference
                         self._log[__name__].warning(
@@ -346,11 +347,11 @@ class UpdateMethods:
                             self._mb_entity_cache
                         )
                         if was_once_logged_in:
-                            if self.update_error_callback:
-                                await self.update_error_callback(e)
-                                return
                             self._updates_error = e
-                            await self.disconnect()
+                            if self.update_error_callback:
+                                await asyncio.shield(self.update_error_callback(e))
+                            else:
+                                await self.disconnect()
                             break
                         continue
                     except (
@@ -445,7 +446,7 @@ class UpdateMethods:
             self._log[__name__].exception('Fatal error handling updates (this is a bug in Telethon, please report it)')
             self._updates_error = e
             if self.update_error_callback:
-                await self.update_error_callback(e)
+                await asyncio.shield(self.update_error_callback(e))
             else:
                 await self.disconnect()
         finally:
