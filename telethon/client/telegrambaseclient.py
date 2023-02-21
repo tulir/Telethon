@@ -732,10 +732,14 @@ class TelegramBaseClient(abc.ABC):
 
     async def _save_update_state(self):
         ss, cs = self._message_box.session_state()
-        await self.session.set_update_state(0, types.updates.State(**ss, unread_count=0))
         now = datetime.datetime.now()  # any datetime works; channels don't need it
-        for channel_id, pts in cs.items():
-            await self.session.set_update_state(channel_id, types.updates.State(pts, 0, now, 0, unread_count=0))
+        states = [(channel_id, types.updates.State(pts, 0, now, 0, unread_count=0)) for channel_id, pts in cs.items()]
+        states.append((0, types.updates.State(**ss, unread_count=0)))
+        if hasattr(self.session, "set_update_states"):
+            await self.session.set_update_states(states)
+        else:
+            for entity_id, state in states:
+                await self.session.set_update_state(entity_id, state)
 
     async def _disconnect(self: 'TelegramClient'):
         """
