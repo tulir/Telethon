@@ -262,6 +262,7 @@ class UpdateMethods:
 
         self._log[__name__].info("Update loop starting")
         self._updates_error = None
+        last_save = int(time.monotonic())
         try:
             if self._catch_up:
                 # User wants to catch up as soon as the client is up and running,
@@ -269,6 +270,7 @@ class UpdateMethods:
                 await self.catch_up()
 
             updates_to_dispatch = deque()
+            should_save = False
 
             while self.is_connected():
                 if updates_to_dispatch:
@@ -285,6 +287,7 @@ class UpdateMethods:
 
                 get_diff = self._message_box.get_difference()
                 if get_diff:
+                    old_seq = self._message_box.seq
                     self._log[__name__].info(
                         'Getting difference for account updates (seq: %d, pts: %d, qts: %d, date: %s)',
                         self._message_box.seq, get_diff.pts, get_diff.qts, get_diff.date
@@ -315,14 +318,15 @@ class UpdateMethods:
                         await asyncio.sleep(5)
                         continue
                     updates, users, chats = self._message_box.apply_difference(diff, self._mb_entity_cache)
+                    new_seq = self._message_box.seq
+                    new_pts = getattr(self._message_box.map.get(ENTRY_ACCOUNT), "pts", None) or 0
+                    new_qts = getattr(self._message_box.map.get(ENTRY_SECRET), "pts", None) or 0
                     self._log[__name__].info(
                         'New account state after applying difference (%s): seq: %d, pts: %d, qts: %d, date: %s',
-                        type(diff).__name__, self._message_box.seq,
-                        getattr(self._message_box.map.get(ENTRY_ACCOUNT), "pts", None) or 0,
-                        getattr(self._message_box.map.get(ENTRY_SECRET), "pts", None) or 0,
-                        self._message_box.date
+                        type(diff).__name__, new_seq, new_pts, new_qts, self._message_box.date
                     )
                     updates_to_dispatch.extend(await self._preprocess_updates(updates, users, chats))
+                    should_save = should_save or new_seq != old_seq or new_pts != get_diff.pts or new_qts != get_diff.qts
                     continue
 
                 get_diff = self._message_box.get_channel_difference(self._mb_entity_cache)
@@ -409,14 +413,23 @@ class UpdateMethods:
                         continue
 
                     updates, users, chats = self._message_box.apply_channel_difference(get_diff, diff, self._mb_entity_cache)
+                    new_pts = getattr(self._message_box.map.get(get_diff.channel.channel_id), "pts", None) or 0
                     self._log[__name__].info(
                         'New channel state for %d after applying difference (%s): pts: %d',
                         get_diff.channel.channel_id,
                         type(diff).__name__,
-                        getattr(self._message_box.map.get(get_diff.channel.channel_id), "pts", None) or 0,
+                        new_pts,
                     )
                     updates_to_dispatch.extend(await self._preprocess_updates(updates, users, chats))
+                    should_save = should_save or new_pts != get_diff.pts
                     continue
+
+                time_since_save = int(time.monotonic()) - last_save
+                if should_save or time_since_save > 24 * 60 * 60:
+                    self._log[__name__].info(f"Saving update states ({should_save=}, {time_since_save=})")
+                    await self._save_update_state()
+                    should_save = False
+                    last_save = int(time.monotonic())
 
                 deadline = self._message_box.check_deadlines()
                 deadline_delay = deadline - get_running_loop().time()
