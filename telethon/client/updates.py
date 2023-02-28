@@ -305,9 +305,10 @@ class UpdateMethods:
                         self._message_box.end_difference()
                         if self.update_error_callback or was_once_logged_in:
                             self._updates_error = e
-                            await self.disconnect()
                             if self.update_error_callback:
-                                await self.update_error_callback(e)
+                                await asyncio.shield(self.update_error_callback(e))
+                            else:
+                                await self.disconnect()
                             break
                         continue
                     except OSError as e:
@@ -351,9 +352,10 @@ class UpdateMethods:
                         )
                         if was_once_logged_in:
                             self._updates_error = e
-                            await self.disconnect()
                             if self.update_error_callback:
-                                await self.update_error_callback(e)
+                                await asyncio.shield(self.update_error_callback(e))
+                            else:
+                                await self.disconnect()
                             break
                         continue
                     except (
@@ -455,9 +457,10 @@ class UpdateMethods:
         except Exception as e:
             self._log[__name__].exception('Fatal error handling updates (this is a bug in Telethon, please report it)')
             self._updates_error = e
-            await self.disconnect()
             if self.update_error_callback:
-                await self.update_error_callback(e)
+                await asyncio.shield(self.update_error_callback(e))
+            else:
+                await self.disconnect()
         finally:
             self._log[__name__].info("Update loop finished")
 
