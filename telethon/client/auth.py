@@ -25,7 +25,7 @@ class AuthMethods:
             bot_token: str = None,
             force_sms: bool = False,
             code_callback: typing.Callable[[], typing.Union[str, int]] = None,
-            first_name: str = 'New User',
+            first_name: str = '',
             last_name: str = '',
             max_attempts: int = 3) -> 'TelegramClient':
         """
@@ -97,6 +97,10 @@ class AuthMethods:
                 with client:
                     pass
         """
+        if force_sms:
+            warnings.warn("force_sms is deprecated and does nothing", DeprecationWarning)
+        if first_name or last_name:
+            warnings.warn("first_name and last_name are deprecated and do nothing", DeprecationWarning)
         if code_callback is None:
             def code_callback():
                 return input('Please enter the code you received: ')
@@ -117,10 +121,7 @@ class AuthMethods:
             phone=phone,
             password=password,
             bot_token=bot_token,
-            force_sms=force_sms,
             code_callback=code_callback,
-            first_name=first_name,
-            last_name=last_name,
             max_attempts=max_attempts
         )
         return (
@@ -129,8 +130,8 @@ class AuthMethods:
         )
 
     async def _start(
-            self: 'TelegramClient', phone, password, bot_token, force_sms,
-            code_callback, first_name, last_name, max_attempts):
+            self: 'TelegramClient', phone, password, bot_token,
+            code_callback, max_attempts):
         if not self.is_connected():
             await self.connect()
 
@@ -181,7 +182,7 @@ class AuthMethods:
         attempts = 0
         two_step_detected = False
 
-        await self.send_code_request(phone, force_sms=force_sms)
+        await self.send_code_request(phone)
         while attempts < max_attempts:
             try:
                 value = code_callback()
@@ -200,6 +201,8 @@ class AuthMethods:
             except errors.SessionPasswordNeededError:
                 two_step_detected = True
                 break
+            except errors.PhoneNumberUnoccupiedError:
+                raise RuntimeError("Phone number not registered. Sign up using an official mobile client first.")
             except (errors.PhoneCodeEmptyError,
                     errors.PhoneCodeExpiredError,
                     errors.PhoneCodeHashEmptyError,
@@ -427,52 +430,25 @@ class AuthMethods:
 
         result = None
         phone = utils.parse_phone(phone) or self._phone
-        phone_hash = self._phone_code_hash.get(phone)
 
-        if not phone_hash:
-            try:
-                result = await self(functions.auth.SendCodeRequest(
-                    phone, self.api_id, self.api_hash, types.CodeSettings()))
-            except errors.AuthRestartError:
-                if _retry_count > 2:
-                    raise
-                return await self.send_code_request(
-                    phone, force_sms=force_sms, _retry_count=_retry_count+1)
+        try:
+            result = await self(functions.auth.SendCodeRequest(
+                phone, self.api_id, self.api_hash, types.CodeSettings()))
+        except errors.AuthRestartError:
+            if _retry_count > 2:
+                raise
+            return await self.send_code_request(
+                phone, _retry_count=_retry_count+1)
 
-            # TODO figure out when/if/how this can happen
-            if isinstance(result, types.auth.SentCodeSuccess):
-                raise RuntimeError('logged in right after sending the code')
+        # TODO figure out when/if/how this can happen
+        if isinstance(result, types.auth.SentCodeSuccess):
+            raise RuntimeError('logged in right after sending the code')
 
-            # If we already sent a SMS, do not resend the code (hash may be empty)
-            if isinstance(result.type, types.auth.SentCodeTypeSms):
-                force_sms = False
-
-            # phone_code_hash may be empty, if it is, do not save it (#1283)
-            if result.phone_code_hash:
-                self._phone_code_hash[phone] = phone_hash = result.phone_code_hash
-        else:
-            force_sms = True
+        # phone_code_hash may be empty, if it is, do not save it (#1283)
+        if result.phone_code_hash:
+            self._phone_code_hash[phone] = result.phone_code_hash
 
         self._phone = phone
-
-        if force_sms:
-            try:
-                result = await self(
-                    functions.auth.ResendCodeRequest(phone, phone_hash))
-            except errors.PhoneCodeExpiredError:
-                if _retry_count > 2:
-                    raise
-                self._phone_code_hash.pop(phone, None)
-                self._log[__name__].info(
-                    "Phone code expired in ResendCodeRequest, requesting a new code"
-                )
-                return await self.send_code_request(
-                    phone, force_sms=False, _retry_count=_retry_count+1)
-
-            if isinstance(result, types.auth.SentCodeSuccess):
-                raise RuntimeError('logged in right after resending the code')
-
-            self._phone_code_hash[phone] = result.phone_code_hash
 
         return result
 
