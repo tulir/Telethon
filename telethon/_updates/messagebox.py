@@ -436,6 +436,7 @@ class MessageBox:
         seq_start = getattr(updates, 'seq_start', None) or seq
         users = getattr(updates, 'users', None) or []
         chats = getattr(updates, 'chats', None) or []
+        is_short = isinstance(updates, tl.UpdateShort)
 
         # updateShort is the only update which cannot be dispatched directly but doesn't have 'updates' field
         updates = getattr(updates, 'updates', None) or [updates.update if isinstance(updates, tl.UpdateShort) else updates]
@@ -463,6 +464,7 @@ class MessageBox:
             pts = PtsInfo.from_update(update)
             return pts.pts - pts.pts_count if pts else 0
 
+        chat_map = {chat.id: chat for chat in chats}
         # Telegram can send updates out of order (e.g. ReadChannelInbox first
         # and then NewChannelMessage, both with the same pts, but the count is
         # 0 and 1 respectively).
@@ -475,7 +477,7 @@ class MessageBox:
         # TODO give this more thought, perhaps possible gaps can't happen at all
         #      (not ones which would be resolved by sorting anyway)
         result.extend(filter(None, (
-            self.apply_pts_info(u, reset_deadline=True) for u in sorted(updates, key=_sort_gaps))))
+            self.apply_pts_info(u, chat_map=chat_map, is_short=is_short, reset_deadline=True) for u in sorted(updates, key=_sort_gaps))))
 
         self.apply_deadlines_reset()
 
@@ -489,7 +491,7 @@ class MessageBox:
 
                     # If this fails to apply, it will get re-inserted at the end.
                     # All should fail, so the order will be preserved (it would've cycled once).
-                    update = self.apply_pts_info(update, reset_deadline=False)
+                    update = self.apply_pts_info(update, chat_map=chat_map, is_short=is_short, reset_deadline=False)
                     if update:
                         result.append(update)
 
@@ -500,6 +502,13 @@ class MessageBox:
 
         return (users, chats)
 
+    @staticmethod
+    def _is_left(chat) -> bool:
+        return (
+            isinstance(chat, (tl.ChatEmpty, tl.ChatForbidden, tl.ChannelForbidden))
+            or (isinstance(chat, (tl.Channel, tl.Chat)) and chat.left)
+        )
+
     # Tries to apply the input update if its `PtsInfo` follows the correct order.
     #
     # If the update can be applied, it is returned; otherwise, the update is stored in a
@@ -509,6 +518,8 @@ class MessageBox:
         self,
         update,
         *,
+        chat_map,
+        is_short,
         reset_deadline,
     ):
         # This update means we need to call getChannelDifference to get the updates from the channel
@@ -527,7 +538,7 @@ class MessageBox:
         # Build the `HashSet` to avoid calling `reset_deadline` more than once for the same entry.
         #
         # By the time this method returns, self.map will have an entry for which we can reset its deadline.
-        if reset_deadline:
+        if reset_deadline and not self._is_left(chat_map.get(pts.entry)) and (pts.entry in self.map or not is_short):
             self.reset_deadlines_for.add(pts.entry)
 
         if pts.entry in self.getting_diff_for:
@@ -574,7 +585,16 @@ class MessageBox:
                 self._log.warning(f"Ignoring empty pts {pts!r}")
             else:
                 self.map[pts.entry].pts = pts.pts
+        elif pts.entry and self._is_left(chat_map.get(pts.entry)):
+            self._log.info(f"Not creating pts entry {pts.entry}/{pts.pts}: user has left channel")
+            setattr(update, "mau_left_channel", True)
+        elif is_short:
+            self._log.info(
+                f"Not creating pts entry {pts.entry}/{pts.pts}: "
+                "update is short and channel is not already in state"
+            )
         else:
+            self._log.info(f"Creating pts entry {pts.entry} {pts.pts} {pts.pts_count}")
             # When a chat is migrated to a megagroup, the first update can be a `ReadChannelInbox`
             # with `pts = 1, pts_count = 0` followed by a `NewChannelMessage` with `pts = 2, pts_count=1`.
             # Note how the `pts` for the message is 2 and not 1 unlike the case described before!
