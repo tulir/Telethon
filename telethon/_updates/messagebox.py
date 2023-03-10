@@ -436,6 +436,7 @@ class MessageBox:
         seq_start = getattr(updates, 'seq_start', None) or seq
         users = getattr(updates, 'users', None) or []
         chats = getattr(updates, 'chats', None) or []
+        is_short = isinstance(updates, tl.UpdateShort)
 
         # updateShort is the only update which cannot be dispatched directly but doesn't have 'updates' field
         updates = getattr(updates, 'updates', None) or [updates.update if isinstance(updates, tl.UpdateShort) else updates]
@@ -476,7 +477,7 @@ class MessageBox:
         # TODO give this more thought, perhaps possible gaps can't happen at all
         #      (not ones which would be resolved by sorting anyway)
         result.extend(filter(None, (
-            self.apply_pts_info(u, chat_map=chat_map, reset_deadline=True) for u in sorted(updates, key=_sort_gaps))))
+            self.apply_pts_info(u, chat_map=chat_map, is_short=is_short, reset_deadline=True) for u in sorted(updates, key=_sort_gaps))))
 
         self.apply_deadlines_reset()
 
@@ -490,7 +491,7 @@ class MessageBox:
 
                     # If this fails to apply, it will get re-inserted at the end.
                     # All should fail, so the order will be preserved (it would've cycled once).
-                    update = self.apply_pts_info(update, chat_map=chat_map, reset_deadline=False)
+                    update = self.apply_pts_info(update, chat_map=chat_map, is_short=is_short, reset_deadline=False)
                     if update:
                         result.append(update)
 
@@ -518,6 +519,7 @@ class MessageBox:
         update,
         *,
         chat_map,
+        is_short,
         reset_deadline,
     ):
         # This update means we need to call getChannelDifference to get the updates from the channel
@@ -584,8 +586,13 @@ class MessageBox:
             else:
                 self.map[pts.entry].pts = pts.pts
         elif pts.entry and self._is_left(chat_map.get(pts.entry)):
-            self._log.info(f"Not adding {pts.entry}/{pts.pts} to update state: user has left channel")
+            self._log.info(f"Not creating pts entry {pts.entry}/{pts.pts}: user has left channel")
             setattr(update, "mau_left_channel", True)
+        elif is_short:
+            self._log.info(
+                "Not creating pts entry {pts.entry}/{pts.pts}: "
+                "update is short and channel is not already in state"
+            )
         else:
             self._log.info(f"Creating pts entry {pts.entry} {pts.pts} {pts.pts_count}")
             # When a chat is migrated to a megagroup, the first update can be a `ReadChannelInbox`
