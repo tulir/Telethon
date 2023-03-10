@@ -584,8 +584,13 @@ class MessageBox:
             else:
                 self.map[pts.entry].pts = pts.pts
         elif pts.entry and self._is_left(chat_map.get(pts.entry)):
-            self._log.info(f"Not adding {pts.entry}/{pts.pts} to update state: user has left channel")
+            self._log.info(f"Not creating pts entry {pts.entry}/{pts.pts}: user has left channel")
             setattr(update, "mau_left_channel", True)
+        elif isinstance(update, tl.UpdateShort):
+            self._log.info(
+                "Not creating pts entry {pts.entry}/{pts.pts}: "
+                "update is short and channel is not already in state"
+            )
         else:
             self._log.info(f"Creating pts entry {pts.entry} {pts.pts} {pts.pts_count}")
             # When a chat is migrated to a megagroup, the first update can be a `ReadChannelInbox`
