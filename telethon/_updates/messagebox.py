@@ -421,6 +421,7 @@ class MessageBox:
         seq_start = getattr(updates, 'seq_start', None)
         users = getattr(updates, 'users', None) or []
         chats = getattr(updates, 'chats', None) or []
+        is_short = isinstance(updates, tl.UpdateShort)
 
         if __debug__:
             self._trace('Processing updates with seq = %r, seq_start = %r, date = %s: %s',
@@ -461,9 +462,10 @@ class MessageBox:
 
         reset_deadlines = set()  # temporary buffer
         any_pts_applied = [False]  # using a list to pass "by reference"
+        chat_map = {chat.id: chat for chat in chats}
 
         result.extend(filter(None, (
-            self.apply_pts_info(u, reset_deadlines=reset_deadlines, any_pts_applied=any_pts_applied)
+            self.apply_pts_info(u, chat_map=chat_map, is_short=is_short, reset_deadlines=reset_deadlines, any_pts_applied=any_pts_applied)
             # Telegram can send updates out of order (e.g. ReadChannelInbox first
             # and then NewChannelMessage, both with the same pts, but the count is
             # 0 and 1 respectively), so we sort them first.
@@ -499,7 +501,7 @@ class MessageBox:
 
                     # If this fails to apply, it will get re-inserted at the end.
                     # All should fail, so the order will be preserved (it would've cycled once).
-                    update = self.apply_pts_info(update, reset_deadlines=None)
+                    update = self.apply_pts_info(update, chat_map=chat_map, is_short=is_short, reset_deadlines=None)
                     if update:
                         result.append(update)
                         if __debug__:
@@ -512,6 +514,12 @@ class MessageBox:
 
         return (users, chats)
 
+    @staticmethod
+    def _is_left(chat) -> bool:
+        return isinstance(
+            chat, (tl.ChatEmpty, tl.ChatForbidden, tl.ChannelForbidden)
+        ) or (isinstance(chat, (tl.Channel, tl.Chat)) and chat.left)
+
     # Tries to apply the input update if its `PtsInfo` follows the correct order.
     #
     # If the update can be applied, it is returned; otherwise, the update is stored in a
@@ -521,6 +529,8 @@ class MessageBox:
         self,
         update,
         *,
+        chat_map,
+        is_short,
         reset_deadlines,
         any_pts_applied=[True],  # mutable default is fine as it's write-only
     ):
@@ -542,7 +552,11 @@ class MessageBox:
         # Build the `HashSet` to avoid calling `reset_deadline` more than once for the same entry.
         #
         # By the time this method returns, self.map will have an entry for which we can reset its deadline.
-        if reset_deadlines:
+        if (
+            reset_deadlines
+            and not self._is_left(chat_map.get(pts.entry))
+            and (pts.entry in self.map or not is_short)
+        ):
             reset_deadlines.add(pts.entry)
 
         if pts.entry in self.getting_diff_for:
@@ -597,7 +611,18 @@ class MessageBox:
                 self._log.warning(f"Ignoring empty pts {pts!r}")
             else:
                 self.map[pts.entry].pts = pts.pts
+        elif pts.entry and self._is_left(chat_map.get(pts.entry)):
+            self._log.info(
+                f"Not creating pts entry {pts.entry}/{pts.pts}: user has left channel"
+            )
+            setattr(update, "mau_left_channel", True)
+        elif is_short:
+            self._log.info(
+                f"Not creating pts entry {pts.entry}/{pts.pts}: "
+                "update is short and channel is not already in state"
+            )
         else:
+            self._log.info(f"Creating pts entry {pts.entry} {pts.pts} {pts.pts_count}")
             # When a chat is migrated to a megagroup, the first update can be a `ReadChannelInbox`
             # with `pts = 1, pts_count = 0` followed by a `NewChannelMessage` with `pts = 2, pts_count=1`.
             # Note how the `pts` for the message is 2 and not 1 unlike the case described before!
