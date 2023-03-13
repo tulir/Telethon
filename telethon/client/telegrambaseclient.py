@@ -576,7 +576,11 @@ class TelegramBaseClient(abc.ABC):
 
             self._message_box.load(ss, cs)
             for state in cs:
-                entity = await self.session.get_input_entity(types.PeerChannel(state.channel_id))
+                try:
+                    entity = await self.session.get_input_entity(types.PeerChannel(state.channel_id))
+                except ValueError:
+                    self._log[__name__].warning(f"Didn't find cached entity for {state.channel_id}")
+                    entity = None
                 if entity:
                     if not await self.is_bot():
                         # TODO is get participant self supposed to work for bots?
