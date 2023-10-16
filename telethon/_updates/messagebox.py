@@ -844,7 +844,6 @@ class MessageBox:
         self.possible_gaps.pop(channel_id, None)
         self.map.pop(channel_id, None)
         self.getting_diff_for.discard(channel_id)
-        self.reset_deadlines_for.discard(channel_id)
 
     def end_channel_difference(self, request, reason: PrematureEndReason, chat_hashes):
         entry = request.channel.channel_id
