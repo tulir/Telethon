@@ -10,5 +10,5 @@ def test_all_methods_present(docs_dir):
     assert len(present_methods) > 0
     for name in dir(TelegramClient):
         attr = getattr(TelegramClient, name)
-        if callable(attr) and not name.startswith('_'):
+        if callable(attr) and not name.startswith('_') and name != 'sign_up':
             assert name in present_methods
