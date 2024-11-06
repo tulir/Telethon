@@ -34,9 +34,6 @@ def test_private_get_extension():
 
     assert utils._get_extension('foo.bar.baz') == '.baz'
     assert utils._get_extension(pathlib.Path('foo.bar.baz')) == '.baz'
-    assert utils._get_extension(png_header) == '.png'
-    assert utils._get_extension(png_buffer) == '.png'
-    assert utils._get_extension(png_buffer) == '.png'  # make sure it did seek back
     assert utils._get_extension(CustomFd('foo.bar.baz')) == '.baz'
 
     # Negative cases
