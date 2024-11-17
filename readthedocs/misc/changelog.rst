@@ -13,6 +13,22 @@ it can take advantage of new goodies!
 
 .. contents:: List of All Versions
 
+New layer (v1.38)
+=================
+
++------------------------+
+| Scheme layer used: 193 |
++------------------------+
+
+`View new and changed raw API methods <https://diff.telethon.dev/?from=188&to=193>`__.
+
+Bug fixes
+~~~~~~~~~
+
+* Formatting entities misbehaved with albums.
+* Sending a Message object with a file did not use the new file.
+
+
 New layer (v1.37)
 =================
 
