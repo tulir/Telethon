@@ -133,7 +133,7 @@ class UploadMethods:
             comment_to: 'typing.Union[int, types.Message]' = None,
             ttl: int = None,
             nosound_video: bool = None,
-            **kwargs) -> list[typing.Any] | typing.Any:
+            **kwargs) -> typing.Union[typing.List[typing.Any], typing.Any]:
         """
         Sends message with the given file to the specified entity.
 
