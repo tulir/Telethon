@@ -203,13 +203,13 @@ class MTProtoState:
         # messages to change server_salt and notifications about invalid time on the client."
         #
         # This means we skip the time check for certain types of messages.
-        if obj.CONSTRUCTOR_ID not in (BadServerSalt.CONSTRUCTOR_ID, BadMsgNotification.CONSTRUCTOR_ID):
+        if obj.CONSTRUCTOR_ID in (BadServerSalt.CONSTRUCTOR_ID, BadMsgNotification.CONSTRUCTOR_ID):
             if not self._highest_remote_id and not self.time_offset:
                 # If the first message we receive is a bad notification, take this opportunity
                 # to adjust the time offset. Assume it will remain stable afterwards. Updating
                 # the offset unconditionally would make the next checks pointless.
                 self.update_time_offset(remote_msg_id)
-
+        else:
             remote_msg_time = remote_msg_id >> 32
             time_delta = (now + self.time_offset) - remote_msg_time
 
