@@ -143,12 +143,12 @@ class MemorySession(Session):
             if hasattr(tlo, 'users') and utils.is_list_like(tlo.users):
                 entities.extend(tlo.users)
 
-        rows = []  # Rows to add (id, hash, username, phone, name)
+        rows = {}  # Rows to add (id, hash, username, phone, name)
         for e in entities:
             row = self._entity_to_row(e)
             if row:
-                rows.append(row)
-        return rows
+                rows[row[0]] = row
+        return list(rows.values())
 
     async def process_entities(self, tlo):
         self._entities |= set(self._entities_to_rows(tlo))
