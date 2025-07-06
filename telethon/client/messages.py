@@ -628,7 +628,7 @@ class MessageMethods:
             entity: 'hints.EntityLike',
             message: 'hints.MessageLike' = '',
             *,
-            reply_to: 'typing.Union[int, types.Message]' = None,
+            reply_to: 'typing.Union[int, types.Message, types.InputReplyToMessage]' = None,
             attributes: 'typing.Sequence[types.TypeDocumentAttribute]' = None,
             parse_mode: typing.Optional[str] = (),
             formatting_entities: typing.Optional[typing.List[types.TypeMessageEntity]] = None,
@@ -676,9 +676,11 @@ class MessageMethods:
                 and you should slice them manually if the text to send is
                 longer than said length.
 
-            reply_to (`int` | `Message <telethon.tl.custom.message.Message>`, optional):
+            reply_to (`int` | `Message <telethon.tl.custom.message.Message>`
+                            | `InputReplyToMessage <telethon.tl.types.InputReplyToMessage>`, optional):
                 Whether to reply to a message or not. If an integer is provided,
                 it should be the ID of the message that it should reply to.
+                If an `InputReplyToMessage` object is provided, it will be passed unmodified.
 
             attributes (`list`, optional):
                 Optional attributes that override the inferred ones, like
@@ -857,7 +859,9 @@ class MessageMethods:
         if comment_to is not None:
             entity, reply_to = await self._get_comment_data(entity, comment_to)
         else:
-            reply_to = utils.get_message_id(reply_to)
+            if reply_to and not isinstance(reply_to, types.InputReplyToMessage):
+                message_id = utils.get_message_id(reply_to)
+                reply_to = None if not message_id else types.InputReplyToMessage(message_id)
 
         if isinstance(message, types.Message):
             if buttons is None:
@@ -889,7 +893,7 @@ class MessageMethods:
                 message=message.message or '',
                 silent=silent,
                 background=background,
-                reply_to=None if reply_to is None else types.InputReplyToMessage(reply_to),
+                reply_to=reply_to,
                 reply_markup=markup,
                 entities=message.entities,
                 clear_draft=clear_draft,
@@ -913,7 +917,7 @@ class MessageMethods:
                 message=message,
                 entities=formatting_entities,
                 no_webpage=not link_preview,
-                reply_to=None if reply_to is None else types.InputReplyToMessage(reply_to),
+                reply_to=reply_to,
                 clear_draft=clear_draft,
                 silent=silent,
                 background=background,
